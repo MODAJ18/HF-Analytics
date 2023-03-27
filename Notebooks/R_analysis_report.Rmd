@@ -1,0 +1,334 @@
+---
+title: "Health Analysis Report"
+author: ""
+date: ""
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(RPostgreSQL)
+library(tidyverse)
+
+# database connection 
+dsn_database = "hospital_olap_db"   
+dsn_hostname = "127.0.0.1"  
+dsn_port = "5432"              
+dsn_uid = "postgres"     
+dsn_pwd = "<PASSWORD>"    
+tryCatch({
+    drv <- dbDriver("PostgreSQL")
+    print("Connecting to Database…")
+    connec <- dbConnect(drv, 
+                 dbname = dsn_database,
+                 host = dsn_hostname, 
+                 port = dsn_port,
+                 user = dsn_uid, 
+                 password = dsn_pwd)
+    print("Database Connected!")
+    },
+    error=function(cond) {
+            print("Unable to connect to Database.")
+    }
+)
+
+
+# query definitions
+df <- dbGetQuery(connec, "
+SELECT vf.visit_id,
+	   ppd.pr_id,
+	   hfd.oshpd_id2,
+	   hfd.location_id,
+	   pd.p_id,
+	   ed.emp_id,
+	   ppd.name as procedure_name,
+	   ppd.type as procedure_type,
+	   ppd.price as procedure_price,
+	   hfd.name as health_facility_name,
+	   hfd.city as health_facility_city,
+	   hfd.county as health_facility_county,
+	   hfd.license_type as health_facility_license_type,
+	   pd.name as patient_name,
+	   pd.date_of_birth as patient_dob,
+	   ed.emp_name as employee_name,
+	   ed.section as employee_section,
+	   ed.specialty as employee_specialty,
+	   vf.visit_date,
+	   vf.payment as visit_payment,
+	   vf.rating as visit_rating,
+       EXTRACT('year' FROM visit_date) as visit_date_year,
+	   EXTRACT('month' FROM visit_date) as visit_date_month
+FROM VisitFact vf
+INNER JOIN PatientProcedureDim ppd ON vf.procedure_dim_id = ppd.pr_id
+INNER JOIN HealthFacilityDim hfd ON (vf.health_facility_dim_id_fac=hfd.oshpd_id2) AND (vf.health_facility_dim_id_loc=hfd.location_id)
+INNER JOIN PatientDim pd ON vf.patient_dim_id=pd.p_id
+INNER JOIN EmployeeDim ed ON vf.employee_dim_id=ed.emp_id
+;  
+")
+
+emp_avg_df <- dbGetQuery(connec, "
+    SELECT ed.specialty, AVG(ed.emp_salary) as avg_salary
+    FROM EmployeeDim ed
+    GROUP BY ed.specialty
+    ORDER BY avg_salary DESC
+    LIMIT 10;
+")
+
+procedure_avg_df <- dbGetQuery(connec, "
+    SELECT ppd.name, ppd.type, AVG(vf.payment) as procedure_cost, 
+		EXTRACT('year' FROM vf.visit_date) as visit_date_year
+    FROM PatientProcedureDim ppd
+    INNER JOIN VisitFact vf ON ppd.pr_id=vf.procedure_dim_id
+    WHERE ppd.name IN (
+        SELECT ppd.name 
+        FROM PatientProcedureDim ppd
+        INNER JOIN VisitFact vf ON ppd.pr_id=vf.procedure_dim_id
+        GROUP BY ppd.name, ppd.type 
+        ORDER BY AVG(vf.payment) DESC
+        LIMIT 10)
+    GROUP BY ppd.name, ppd.type, visit_date_year
+    ORDER BY procedure_cost DESC;
+")
+
+procedure_avg_rating_df <- dbGetQuery(connec, "
+    SELECT ppd.name, ppd.type, AVG(vf.rating) as procedure_rating, 
+		EXTRACT('year' FROM vf.visit_date) as visit_date_year
+        FROM PatientProcedureDim ppd
+        INNER JOIN VisitFact vf ON ppd.pr_id=vf.procedure_dim_id
+        WHERE ppd.name IN (
+            SELECT ppd.name 
+            FROM PatientProcedureDim ppd
+            INNER JOIN VisitFact vf ON ppd.pr_id=vf.procedure_dim_id
+            GROUP BY ppd.name, ppd.type 
+            ORDER BY AVG(vf.rating) DESC
+            LIMIT 10)
+        GROUP BY ppd.name, ppd.type, visit_date_year
+        ORDER BY procedure_rating DESC;
+")
+
+procedure_most_common_df <- dbGetQuery(connec, "
+    SELECT ppd.name, ppd.type, COUNT(vf.visit_id) as num_procedure_conducted
+    FROM PatientProcedureDim ppd
+    INNER JOIN VisitFact vf ON ppd.pr_id=vf.procedure_dim_id
+    WHERE vf.visit_date IS NOT NULL
+    GROUP BY ppd.name, ppd.type
+    ORDER BY num_procedure_conducted DESC
+    LIMIT 10;
+")
+
+health_facility_num_patients_df <- dbGetQuery(connec, "
+    SELECT hfd.name as health_facility, hfd.license_type as facility_type, COUNT(DISTINCT pd.p_id) as num_patients
+    FROM HealthFacilityDim hfd
+    INNER JOIN VisitFact vf ON hfd.location_id=vf.health_facility_dim_id_loc AND 
+                                hfd.oshpd_id2=vf.health_facility_dim_id_fac
+    INNER JOIN PatientDim pd ON vf.patient_dim_id=pd.p_id
+    GROUP BY health_facility, facility_type
+    ORDER BY num_patients DESC
+    LIMIT 5;
+")
+
+health_facility_earning_comparison_df <- dbGetQuery(connec, "
+    SELECT hfd.license_type as health_facility_type,
+	   EXTRACT('year' FROM vf.visit_date) as visit_date_year,
+	   SUM(vf.payment)/COUNT(DISTINCT oshpd_id2) as hf_average_earnings
+    FROM HealthFacilityDim hfd
+    INNER JOIN VisitFact vf ON hfd.location_id=vf.health_facility_dim_id_loc AND 
+                                    hfd.oshpd_id2=vf.health_facility_dim_id_fac
+
+    GROUP BY health_facility_type, visit_date_year;
+")
+
+health_facility_rating_comparison_df <- dbGetQuery(connec, "
+    SELECT hfd.license_type as health_facility_type,
+	   EXTRACT('year' FROM vf.visit_date) as visit_date_year,
+	   AVG(vf.rating) as health_facility_rating
+    FROM HealthFacilityDim hfd
+    INNER JOIN VisitFact vf ON hfd.location_id=vf.health_facility_dim_id_loc AND 
+                                    hfd.oshpd_id2=vf.health_facility_dim_id_fac
+
+    GROUP BY health_facility_type, visit_date_year;
+")
+
+```
+
+```{r include=FALSE}
+procedure_avg_df$name <- factor(procedure_avg_df$name,
+    levels = unique(procedure_avg_df$name[order(procedure_avg_df$procedure_cost)]))
+
+procedure_avg_rating_df$name <- factor(procedure_avg_rating_df$name,
+    levels = unique(procedure_avg_rating_df$name[order(procedure_avg_rating_df$procedure_rating)]))
+
+procedure_most_common_df$name <- factor(procedure_most_common_df$name,
+    levels = unique(procedure_most_common_df$name[order(procedure_most_common_df$num_procedure_conducted)]))
+
+health_facility_num_patients_df$health_facility <- factor(health_facility_num_patients_df$health_facility,
+                levels = unique(health_facility_num_patients_df$health_facility[order(health_facility_num_patients_df$num_patients)]))
+
+```
+
+## Goal
+
+This is an analysis report for **healthcare facilities** spanning different areas in the united states, and gives an insight to the general comparative aspects of running these facilities, in terms of patient and procedure costs, ratings for various hospital and clinic visits, and the daily, monthly, and yearly count visit aggregate throughout the various facilities.
+
+<br>
+
+## 1) Ratings, Payments, and Salaries
+#### Are low ratings indicated by high procedure payments?
+
+```{r rating-payment-relation, echo=TRUE}
+bar = ggplot(data=df) +
+  geom_smooth(mapping = aes(x=visit_payment, y=visit_rating))
+print(bar)
+```
+
+```{r payment-rating-averages, echo=TRUE}
+bar = ggplot(data = df) +
+ geom_bar(
+ mapping = aes(x = visit_rating, y = visit_payment, 
+                fill= visit_rating),
+         stat = "summary", fun=mean
+ )
+
+print(bar)
+```
+
+the direct to answer the question aforementioned is 'no', as most ratings average out at 5 and goes slightly below five as payments increase, but this is not a significant enough decline for rating to remark it as a relation between visit payments and visit ratings.
+
+<br>
+
+#### Which employees have the highest salary?
+
+```{r employee-salary-highest, echo=TRUE}
+bar = ggplot(data = emp_avg_df) +
+ geom_bar(
+ mapping = aes(y = avg_salary, x = specialty, 
+                fill= specialty),
+         stat = "identity"
+ )
+plot(bar + coord_polar())
+```
+
+Generally, it seems that most salaries aren't exactly higher from one specialty to another, though it is important that all of these specialties are considred physician/medical specialist roles, which are known to have high salaries compared to nurses, secretaries and other staff in health facilties.
+
+<br>
+
+## 2) Health Procedures
+#### Which procedures are the most expensive in cost?
+
+```{r procedure-costs-highest, echo=TRUE}
+bar = ggplot(data = procedure_avg_df) +
+ geom_bar(
+ mapping = aes(x = procedure_cost, y = name, 
+                fill = as.factor(visit_date_year)),
+         stat = "identity", position = "dodge"
+ )
+plot(bar)
+```
+
+Surgeries related to treating the nervous ,lymphatic, or respiratory system are the most costly. in addition to that, fatal injuries caused accidents or wars have a substantial cost for treatment.
+
+<br>
+
+#### Which procedures are generally most postively rated?
+
+```{r procedure-rating-highest, echo=TRUE}
+bar = ggplot(data = procedure_avg_rating_df) +
+ geom_bar(
+ mapping = aes(x = procedure_rating, y = name, 
+                fill = type),
+          stat = "summary", fun=mean
+ )
+
+plot(bar)
+```
+
+highest rated procedures across all health facilties are related to cardivascular and ocular surgeries, and otorhinolaryngologic or neurmuscular medicines. it should be noted that the ratings are mixed as shown in the average rating scores.
+
+<br>
+
+#### What is the most common procedure conducted in health facilities?
+
+```{r common-procedure-dist, echo=TRUE}
+bar = ggplot(data = procedure_most_common_df) +
+ geom_bar(
+ mapping = aes(x = num_procedure_conducted, y = name, 
+                fill = num_procedure_conducted),
+         stat = "identity"
+ )
+plot(bar)
+
+```
+
+most of the procedures conducted are related to diagnosis for different systems such as the respiratory, digestive, and musculoskeletal systems. suffocation and poisoning incidents are also commonly performed in health facilities.
+
+<br>
+
+## 3) Health Facility
+#### Which health facility has the highest number of patients?
+
+```{r health-facility-patients-highest, echo=TRUE}
+bar <- ggplot(data = health_facility_num_patients_df) + 
+  geom_bar(
+    mapping = aes(y=num_patients, x=health_facility, 
+                      fill=health_facility),
+    stat="identity", 
+    show.legend = FALSE,
+    width = 1
+  ) + 
+  theme(aspect.ratio = 1) +
+  labs(x = NULL, y = NULL)
+
+plot(bar + scale_fill_brewer(palette="Set1") + coord_flip())
+```
+
+University of california medical center hosts the highest number of patients.
+
+<br>
+
+#### Do Hospitals generally earn more than health clinics?
+
+```{r health-facility-earnings, echo=TRUE}
+
+bar = ggplot(data = health_facility_earning_comparison_df) +
+ geom_bar(
+ mapping = aes(x = health_facility_type, y = hf_average_earnings, 
+                fill = visit_date_year),
+         stat = "identity",
+         width = 0.8
+ ) 
+plot(bar)
+```
+
+health clinics earn more than hospitals in general.
+
+<br>
+
+#### Are Hospitals generally rated higher than health clinics?
+
+```{r health-facility-ratings, echo=TRUE}
+bar = ggplot(data = health_facility_rating_comparison_df) +
+ geom_bar(
+ mapping = aes(x = health_facility_type, y = health_facility_rating, 
+                fill = as.factor(visit_date_year)),
+         stat = "identity",
+         position = "dodge"
+ ) + scale_fill_brewer(palette="Set2")
+plot(bar)
+```
+
+health clinics and hospitals all have a rating average at around 5.
+
+<br>
+
+### Summary
+
+**Insights to be noted are:** 
+* hospital monitoring for earnings and procedures costs, by making balance sheets and revising financial reports of health facilities. * evaluate treatment and housing for patients in highly-visited facilities. 
+* investigate nervous system surgeries for costs and establish causal factors.
+
+**Further analysis requirements:**  
+* extract characteristics for enabling high ratings by examining low-rate facilities. 
+* attempt to establish relation with patient ratings, for each facility, through an auto-analysis process.
