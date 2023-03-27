@@ -57,24 +57,30 @@ In this Project, we attempt to generate transactional dataset to use as initial 
 
 --> Architecture built for the project:
 
+<img src="Architecture.png" alt="p1" width="1000" height="500">
 
 --> The main dashboards created for this project using Tableau, Power BI, and Dash are showcased in the images below:
-
-<!-- <img src="Analysis/Tableau_Dashboard.png" alt="p1" width="500" height="500">
-
-<img src="Analysis/Power_BI_Dashboard.png" alt="p2" width="500" height="500">
-
-<img src="Analysis/Dash_Dashboard.png" alt="p3" width="500" height="500"> -->
+<p float="left" align="center">
+  <img src="Analysis/Tableau_Dashboard.png" alt="p1" width="800" height="450">
+  <img src="Analysis/Power_BI_Dashboard.png" alt="p2" width="800" height="450>
+  
+  <img src="Analysis/Dash_Dashboard.png" alt="p3" width="700" height="450">
+</p>
 
 <br/>
 
 --> Some screenshots of reports built in excel are showcased in the images below:
+<p float="left" align="center">
+  <img src="Analysis/Excel_analysis_picture1.png" alt="excel_p1" width="350" height="300">
+  <img src="Analysis/Excel_analysis_picture3.png" alt="excel_2p2" width="350" height="250">
+  <img src="Analysis/Excel_analysis_picture2.png" alt="excel_2p2" width="300" height="350">
+</p>
 
-<!-- <img src="Analysis/Excel_analysis_picture1.png" alt="excel_p1" width="500" height="500">
-
-<img src="Analysis/Excel_analysis_picture2.png" alt="excel_2p2" width="500" height="500">
-
-<img src="Analysis/Excel_analysis_picture3.png" alt="excel_2p2" width="500" height="500"> -->
+<p float="left" align="center">
+  <img src="Analysis/Excel_analysis_picture4.png" alt="excel_p1" width="450" height="300">
+  <img src="Analysis/Excel_analysis_picture5.png" alt="excel_2p2" width="450" height="210">
+  <img src="Analysis/Excel_analysis_picture6.png" alt="excel_2p2" width="600" height="270">
+</p>
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
